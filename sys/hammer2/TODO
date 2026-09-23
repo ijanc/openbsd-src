@@ -1,0 +1,23 @@
+- WITNESS lock order reversals (inode <-> h2ip, h2ch, h2io,
+  h2dev_iohash).  Mostly seen with vnd over FFS; retest on a real
+  disk.  Known two-direction locking: chain -> inode_get -> inode
+  and inode -> inode_chain -> chain.
+
+- bulkfree: after removing ~160MB and one bulkfree pass, df still
+  shows the space used.  Check whether a second pass frees it.
+
+- fsck_hammer2 prints "zone.1 exceeds volume size" on a 2GB volume;
+  confirm it is informational only.
+
+- No dirty memory throttling (pfs_memory_wait/wakeup, lwinprog
+  ref/wait).  Relevant for fsync-heavy stalls.
+
+- hammer2_vfs_sync_pmp(): ip->vp read and vget(LK_NOWAIT) before
+  taking ip->lock; small window against reclaim.
+
+- sbin/hammer2 check_volume(): reject partitions overlapping the
+  disklabel/MBR.
+
+- Comments in sys/hammer2 referencing other systems; strip or reword.
+
+- cmd_debug.c prints "DragonFly HAMMER2" as the partition type name.

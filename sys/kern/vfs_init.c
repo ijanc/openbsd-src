@@ -100,6 +100,11 @@ static struct vfsconf vfsconflist[] = {
 	{ &tmpfs_vfsops, MOUNT_TMPFS, 19, 0, MNT_LOCAL,
 	    sizeof(struct tmpfs_args) },
 #endif
+
+#ifdef HAMMER2
+	{ &hammer2_vfsops, MOUNT_HAMMER2, 20, 0, MNT_LOCAL,
+	    sizeof(struct hammer2_args) },
+#endif
 };
 
 

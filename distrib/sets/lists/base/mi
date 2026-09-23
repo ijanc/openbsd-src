@@ -370,11 +370,13 @@
 ./sbin/fsck
 ./sbin/fsck_ext2fs
 ./sbin/fsck_ffs
+./sbin/fsck_hammer2
 ./sbin/fsck_msdos
 ./sbin/fsdb
 ./sbin/fsirand
 ./sbin/growfs
 ./sbin/halt
+./sbin/hammer2
 ./sbin/ifconfig
 ./sbin/iked
 ./sbin/init
@@ -388,6 +390,7 @@
 ./sbin/mount_cd9660
 ./sbin/mount_ext2fs
 ./sbin/mount_ffs
+./sbin/mount_hammer2
 ./sbin/mount_mfs
 ./sbin/mount_msdos
 ./sbin/mount_nfs
@@ -399,6 +402,7 @@
 ./sbin/ncheck_ffs
 ./sbin/newfs
 ./sbin/newfs_ext2fs
+./sbin/newfs_hammer2
 ./sbin/newfs_msdos
 ./sbin/nfsd
 ./sbin/nologin

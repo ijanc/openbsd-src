@@ -89,6 +89,8 @@
 #include <nfs/nfsproto.h>
 #include <nfs/nfs.h>
 
+#include <hammer2/hammer2_mount.h>
+
 #include <ddb/db_var.h>
 
 #include <ctype.h>
@@ -1281,6 +1283,7 @@ struct ctlname vfsgennames[] = CTL_VFSGENCTL_NAMES;
 struct ctlname ffsname[] = FFS_NAMES;
 struct ctlname nfsname[] = FS_NFS_NAMES;
 struct ctlname fusefsname[] = FUSEFS_NAMES;
+struct ctlname hammer2name[] = HAMMER2_NAMES;
 struct list *vfsvars;
 int *vfs_typenums;
 
@@ -1342,6 +1345,10 @@ vfsinit(void)
 		if (!strcmp(vfc.vfc_name, MOUNT_FUSEFS)) {
 			vfsvars[cnt].list = fusefsname;
 			vfsvars[cnt].size = FUSEFS_MAXID;
+		}
+		if (!strcmp(vfc.vfc_name, MOUNT_HAMMER2)) {
+			vfsvars[cnt].list = hammer2name;
+			vfsvars[cnt].size = HAMMER2CTL_MAXID;
 		}
 		vfs_typenums[cnt] = vfc.vfc_typenum;
 		strlcat(&names[loc], vfc.vfc_name, sizeof names - loc);

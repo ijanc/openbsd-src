@@ -35,7 +35,7 @@ MFILES=	frame.h
 LFILES=	endian.h fcntl.h syslog.h termios.h stdarg.h stdint.h varargs.h
 
 DIRS=	arpa protocols rpc rpcsvc
-LDIRS=	crypto ddb dev isofs miscfs msdosfs net netinet netinet6 \
+LDIRS=	crypto ddb dev hammer2 isofs miscfs msdosfs net netinet netinet6 \
 	netmpls net80211 nfs ntfs scsi sys ufs uvm
 
 # Places that need a prerequisite target met before includes
@@ -120,7 +120,9 @@ copies:
 	cd ../sys; \
 	pax -rw -pa -L \
 	    `find ${LDIRS} -follow -type f -name '*.h' '!' \
-	    '(' -path 'dev/microcode/*' -or -path 'dev/pci/drm/*' ')' \
+	    '(' -path 'dev/microcode/*' -or -path 'dev/pci/drm/*' -or \
+	    '(' -path 'hammer2/*' '!' -name 'hammer2_disk.h' \
+	    '!' -name 'hammer2_ioctl.h' '!' -name 'hammer2_mount.h' ')' ')' \
 	    -print` ${DESTDIR}/usr/include
 	cd ${DESTDIR}/usr/include && rm -rf ${MACHINE} ${MACHINE_CPU} machine
 	${INSTALL} -d -o ${BINOWN} -g ${BINGRP} -m 755 \

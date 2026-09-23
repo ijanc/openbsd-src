@@ -842,6 +842,24 @@ file tmpfs/tmpfs_vfsops.c		tmpfs
 file tmpfs/tmpfs_vnops.c		tmpfs
 file tmpfs/tmpfs_specops.c		tmpfs
 file tmpfs/tmpfs_fifoops.c		tmpfs & fifo
+file hammer2/hammer2_admin.c		hammer2
+file hammer2/hammer2_bulkfree.c		hammer2
+file hammer2/hammer2_chain.c		hammer2
+file hammer2/hammer2_cluster.c		hammer2
+file hammer2/hammer2_flush.c		hammer2
+file hammer2/hammer2_freemap.c		hammer2
+file hammer2/hammer2_inode.c		hammer2
+file hammer2/hammer2_io.c		hammer2
+file hammer2/hammer2_ioctl.c		hammer2
+file hammer2/hammer2_lz4.c		hammer2
+file hammer2/hammer2_ondisk.c		hammer2
+file hammer2/hammer2_scrub.c		hammer2
+file hammer2/hammer2_strategy.c		hammer2
+file hammer2/hammer2_subr.c		hammer2
+file hammer2/hammer2_vfsops.c		hammer2
+file hammer2/hammer2_vnops.c		hammer2
+file hammer2/hammer2_xops.c		hammer2
+file hammer2/xxhash/xxhash.c		hammer2
 file net/art.c
 file net/bpf.c				bpfilter		needs-count
 file net/bpf_filter.c			bpfilter
@@ -1079,6 +1097,7 @@ file lib/libkern/getsn.c
 file lib/libkern/random.c
 file lib/libkern/explicit_bzero.c
 file lib/libkern/timingsafe_bcmp.c
+file lib/libkern/icrc32.c
 file lib/libkern/arch/${MACHINE_ARCH}/strchr.S | lib/libkern/strchr.c
 file lib/libkern/arch/${MACHINE_ARCH}/strrchr.S | lib/libkern/strrchr.c
 file lib/libkern/arch/${MACHINE_ARCH}/imax.S | lib/libkern/imax.c
@@ -1113,14 +1132,21 @@ file lib/libkern/arch/${MACHINE_ARCH}/skpc.S | lib/libkern/skpc.c
 file lib/libkern/arch/${MACHINE_ARCH}/strncasecmp.S | lib/libkern/strncasecmp.c
 
 file lib/libz/adler32.c			ppp_deflate | ipsec | crypto | ddb |
-					    bios
+					    bios | hammer2
 file lib/libz/crc32.c
 file lib/libz/infback.c			ppp_deflate | ipsec | crypto | ddb
-file lib/libz/inffast.c			ppp_deflate | ipsec | crypto | ddb
-file lib/libz/inflate.c			ppp_deflate | ipsec | crypto | ddb
-file lib/libz/inftrees.c		ppp_deflate | ipsec | crypto | ddb
-file lib/libz/deflate.c			ppp_deflate | ipsec | crypto | ddb
-file lib/libz/zutil.c			ppp_deflate | ipsec | crypto | ddb
-file lib/libz/zopenbsd.c		ppp_deflate | ipsec | crypto | ddb
-file lib/libz/trees.c			ppp_deflate | ipsec | crypto | ddb
+file lib/libz/inffast.c			ppp_deflate | ipsec | crypto | ddb |
+					    hammer2
+file lib/libz/inflate.c			ppp_deflate | ipsec | crypto | ddb |
+					    hammer2
+file lib/libz/inftrees.c		ppp_deflate | ipsec | crypto | ddb |
+					    hammer2
+file lib/libz/deflate.c			ppp_deflate | ipsec | crypto | ddb |
+					    hammer2
+file lib/libz/zutil.c			ppp_deflate | ipsec | crypto | ddb |
+					    hammer2
+file lib/libz/zopenbsd.c		ppp_deflate | ipsec | crypto | ddb |
+					    hammer2
+file lib/libz/trees.c			ppp_deflate | ipsec | crypto | ddb |
+					    hammer2
 file lib/libz/compress.c		ppp_deflate | ipsec | crypto | ddb
