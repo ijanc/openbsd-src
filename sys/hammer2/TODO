@@ -1,10 +1,10 @@
-- WITNESS lock order reversals (inode <-> h2ip, h2ch, h2io,
-  h2dev_iohash).  Mostly seen with vnd over FFS; retest on a real
-  disk.  Known two-direction locking: chain -> inode_get -> inode
-  and inode -> inode_chain -> chain.
+- Shared recursion on rrwlock(9) sleeps if a writer is waiting:
+  RESOLVE_LOCKAGAIN|SHARED in hammer2_chain_lock() and recursive
+  shared hammer2_inode_lock() can self-deadlock.
 
-- bulkfree: after removing ~160MB and one bulkfree pass, df still
-  shows the space used.  Check whether a second pass frees it.
+- bread()/getblk() in hammer2_io_getblk() may sleep for buffer
+  space with h2io, chain and inode locks held while the buffer
+  daemon writes hammer2 buffers through hammer2_strategy_write().
 
 - fsck_hammer2 prints "zone.1 exceeds volume size" on a 2GB volume;
   confirm it is informational only.
@@ -16,8 +16,15 @@
   taking ip->lock; small window against reclaim.
 
 - sbin/hammer2 check_volume(): reject partitions overlapping the
-  disklabel/MBR.
+  disklabel/MBR.  newfs_hammer2 on a partition at offset 64 of an
+  fdisk -i disk overwrites the disklabel.
 
 - Comments in sys/hammer2 referencing other systems; strip or reword.
 
 - cmd_debug.c prints "DragonFly HAMMER2" as the partition type name.
+
+- hammer2_mount(): if hammer2_init_volumes() succeeds without setting
+  hmp->devvp, hammer2_unmount_helper() runs on an hmp that is not on
+  hammer2_mntlist and has no vchain/fchain, iohash or locks set up
+  (TAILQ_REMOVE on a list it is not on), and the opened devvpl is
+  never closed nor freed since it was not moved to hmp->devvp_list.

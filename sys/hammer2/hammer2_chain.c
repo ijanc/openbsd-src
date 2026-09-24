@@ -198,11 +198,27 @@ void
 hammer2_chain_init(hammer2_chain_t *chain)
 {
 	RB_INIT(&chain->core.rbtree);
-	hammer2_mtx_init_recurse(&chain->lock, "h2ch");
-	hammer2_mtx_init(&chain->diolk, "h2ch_dio");
+
+	/*
+	 * Freemap chains get their own lock classes.  They are locked
+	 * from hammer2_chain_modify() with a regular chain and its diolk
+	 * held, always in that order.
+	 */
+	switch (chain->bref.type) {
+	case HAMMER2_BREF_TYPE_FREEMAP:
+	case HAMMER2_BREF_TYPE_FREEMAP_NODE:
+	case HAMMER2_BREF_TYPE_FREEMAP_LEAF:
+		hammer2_mtx_init_recurse(&chain->lock, "h2ch_fm");
+		hammer2_mtx_init(&chain->diolk, "h2ch_fmdio");
+		break;
+	default:
+		hammer2_mtx_init_recurse(&chain->lock, "h2ch");
+		hammer2_mtx_init(&chain->diolk, "h2ch_dio");
+		break;
+	}
 	hammer2_lk_init(&chain->inp_lock, "h2ch_inp");
 	hammer2_lkc_init(&chain->inp_cv, "h2ch_inp_cv");
-	hammer2_spin_init(&chain->core.spin, "h2ch_core");
+	hammer2_spin_init_recurse(&chain->core.spin, "h2ch_core");
 }
 
 /*

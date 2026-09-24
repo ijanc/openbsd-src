@@ -169,7 +169,11 @@ hammer2_init(struct vfsconf *vfsp)
 	pool_init(&hammer2_pool_xops, sizeof(hammer2_xop_t), 0,
 	    IPL_NONE, PR_WAITOK, "h2xopspool", NULL);
 
-	hammer2_lk_init(&hammer2_mntlk, "h2_mnt");
+	/*
+	 * hammer2_mntlk is taken with the covered vnode locked and is held
+	 * while locking the device vnodes, so it sits in the vnode lock order.
+	 */
+	rw_init_flags(&hammer2_mntlk, "h2_mnt", RWL_IS_VNODE);
 
 	TAILQ_INIT(&hammer2_mntlist);
 	TAILQ_INIT(&hammer2_pfslist);
@@ -189,6 +193,10 @@ hammer2_init(struct vfsconf *vfsp)
 /*
  * Core PFS allocator.  Used to allocate or reference the pmp structure
  * for PFS cluster mounts and the spmp structure for media (hmp) structures.
+ *
+ * If chain is not NULL it must be held (hammer2_chain_ref_hold()) but not
+ * locked, and ripdata must point to its data.  The chain is locked here
+ * after the root inode, keeping the inode -> chain lock order.
  */
 hammer2_pfs_t *
 hammer2_pfsalloc(hammer2_chain_t *chain, const hammer2_inode_data_t *ripdata,
@@ -276,6 +284,7 @@ hammer2_pfsalloc(hammer2_chain_t *chain, const hammer2_inode_data_t *ripdata,
 	 */
 	hammer2_inode_ref(iroot);
 	hammer2_mtx_ex(&iroot->lock);
+	hammer2_chain_lock(chain, HAMMER2_RESOLVE_ALWAYS);
 	j = iroot->cluster.nchains;
 
 	if (j == HAMMER2_MAXCLUSTER) {
@@ -307,6 +316,7 @@ hammer2_pfsalloc(hammer2_chain_t *chain, const hammer2_inode_data_t *ripdata,
 	iroot->cluster.nchains = j;
 	hammer2_assert_cluster(&iroot->cluster);
 
+	hammer2_chain_unlock(chain);
 	hammer2_mtx_unlock(&iroot->lock);
 	hammer2_inode_drop(iroot);
 done:
@@ -848,6 +858,8 @@ next_hmp:
 		 */
 		xop = pool_get(&hammer2_pool_xops, PR_WAITOK | PR_ZERO);
 		hammer2_dummy_xop_from_chain(xop, schain);
+		hammer2_chain_ref_hold(schain);
+		hammer2_chain_unlock(schain);
 		hammer2_inode_drop(spmp->iroot);
 		spmp->iroot = hammer2_inode_get(spmp, xop, -1, -1);
 		spmp->spmp_hmp = hmp;
@@ -855,7 +867,7 @@ next_hmp:
 		spmp->rdonly = rdonly;
 		hammer2_inode_ref(spmp->iroot);
 		hammer2_inode_unlock(spmp->iroot);
-		hammer2_chain_unlock(schain);
+		hammer2_chain_drop_unhold(schain);
 		hammer2_chain_drop(schain);
 		schain = NULL;
 		pool_put(&hammer2_pool_xops, xop);
@@ -868,12 +880,6 @@ next_hmp:
 			/* XXX do something with error */
 		}
 
-		/*
-		 * A false-positive lock order reversal may be detected.
-		 * There are 2 directions of locking, which is a bad design.
-		 * chain is locked -> hammer2_inode_get() -> lock inode
-		 * inode is locked -> hammer2_inode_chain() -> lock chain
-		 */
 		hammer2_update_pmps(hmp);
 		hammer2_bulkfree_init(hmp);
 	} else {
@@ -935,11 +941,14 @@ next_hmp:
 	if (chain->error) {
 		hprintf("PFS label \"%s\" chain error %08x\n",
 		    label, chain->error);
+		hammer2_chain_unlock(chain);
 	} else {
+		hammer2_chain_ref_hold(chain);
+		hammer2_chain_unlock(chain);
 		ripdata = &chain->data->ipdata;
 		pmp = hammer2_pfsalloc(NULL, ripdata, force_local);
+		hammer2_chain_drop_unhold(chain);
 	}
-	hammer2_chain_unlock(chain);
 	hammer2_chain_drop(chain);
 
 	/* PFS to mount must exist at this point. */
@@ -1038,7 +1047,7 @@ hammer2_update_pmps(hammer2_dev_t *hmp)
 	const hammer2_inode_data_t *ripdata;
 	hammer2_chain_t *parent;
 	hammer2_chain_t *chain;
-	hammer2_key_t key_next;
+	hammer2_key_t key, key_next;
 	int error;
 
 	/*
@@ -1047,31 +1056,54 @@ hammer2_update_pmps(hammer2_dev_t *hmp)
 	 */
 	force_local = (hmp->hflags & HMNT2_LOCAL) ? hmp : NULL;
 
-	/* Lookup mount point under the media-localized super-root. */
+	/*
+	 * Lookup mount point under the media-localized super-root.
+	 * hammer2_pfsalloc() locks inodes, so drop all locks before each
+	 * call and restart the lookup after the last PFS found.
+	 */
 	spmp = hmp->spmp;
-	hammer2_inode_lock(spmp->iroot, 0);
-	parent = hammer2_inode_chain(spmp->iroot, 0, HAMMER2_RESOLVE_ALWAYS);
-	chain = hammer2_chain_lookup(&parent, &key_next, HAMMER2_KEY_MIN,
-	    HAMMER2_KEY_MAX, &error, 0);
-	while (chain) {
-		if (chain->error) {
-			hprintf("chain error %08x reading PFS root\n",
-			    chain->error);
-		} else if (chain->bref.type != HAMMER2_BREF_TYPE_INODE) {
-			hprintf("non inode chain type %d under super-root\n",
-			    chain->bref.type);
-		} else {
-			ripdata = &chain->data->ipdata;
-			hammer2_pfsalloc(chain, ripdata, force_local);
-		}
-		chain = hammer2_chain_next(&parent, chain, &key_next,
+	key = HAMMER2_KEY_MIN;
+	for (;;) {
+		hammer2_inode_lock(spmp->iroot, 0);
+		parent = hammer2_inode_chain(spmp->iroot, 0,
+		    HAMMER2_RESOLVE_ALWAYS);
+		chain = hammer2_chain_lookup(&parent, &key_next, key,
 		    HAMMER2_KEY_MAX, &error, 0);
+		while (chain) {
+			if (chain->error) {
+				hprintf("chain error %08x reading PFS root\n",
+				    chain->error);
+			} else if (chain->bref.type !=
+			    HAMMER2_BREF_TYPE_INODE) {
+				hprintf("non inode chain type %d under "
+				    "super-root\n", chain->bref.type);
+			} else {
+				break;
+			}
+			chain = hammer2_chain_next(&parent, chain, &key_next,
+			    HAMMER2_KEY_MAX, &error, 0);
+		}
+		if (chain) {
+			key = chain->bref.key;
+			hammer2_chain_ref_hold(chain);
+			hammer2_chain_unlock(chain);
+		}
+		if (parent) {
+			hammer2_chain_unlock(parent);
+			hammer2_chain_drop(parent);
+		}
+		hammer2_inode_unlock(spmp->iroot);
+		if (chain == NULL)
+			break;
+
+		ripdata = &chain->data->ipdata;
+		hammer2_pfsalloc(chain, ripdata, force_local);
+		hammer2_chain_drop_unhold(chain);
+		hammer2_chain_drop(chain);
+		if (key == HAMMER2_KEY_MAX)
+			break;
+		++key;
 	}
-	if (parent) {
-		hammer2_chain_unlock(parent);
-		hammer2_chain_drop(parent);
-	}
-	hammer2_inode_unlock(spmp->iroot);
 }
 
 static int
@@ -1628,9 +1660,10 @@ hammer2_vfs_sync_pmp(hammer2_pfs_t *pmp, int waitfor __unused)
 {
 	hammer2_inode_t *ip;
 	hammer2_depend_t *depend, *depend_next;
+	hammer2_dev_t *hmp;
 	struct vnode *vp;
 	uint32_t pass2;
-	int error, dorestart;
+	int error, dorestart, i, j;
 
 	/*
 	 * Move all inodes on sideq to syncq.  This will clear sideq.
@@ -1902,18 +1935,35 @@ restart:
 	 * be dirty, because all the inodes in the PFS are indexed under it.
 	 * The normal flushing of iroot above would only occur if directory
 	 * entries under the root were changed.
-	 *
-	 * Specifying VOLHDR will cause an additionl flush of hmp->spmp
-	 * for the media making up the cluster.
 	 */
 	if ((ip = pmp->iroot) != NULL) {
 		hammer2_inode_ref(ip);
 		hammer2_mtx_ex(&ip->lock);
 		hammer2_inode_chain_sync(ip);
 		hammer2_inode_chain_flush(ip,
-		    HAMMER2_XOP_INODE_STOP | HAMMER2_XOP_FSSYNC |
-		    HAMMER2_XOP_VOLHDR);
+		    HAMMER2_XOP_INODE_STOP | HAMMER2_XOP_FSSYNC);
 		hammer2_inode_unlock(ip); /* unlock+drop */
+	}
+
+	/*
+	 * Then flush the super-root, freemap and volume header of each
+	 * device making up the cluster, once per device.  This is done
+	 * without the iroot lock held since it locks and syncs the device
+	 * vnodes.  The super-root's own pmp has no PFS root to flush
+	 * through, skip it.
+	 */
+	if (pmp->iroot != NULL) {
+		for (i = 0; i < HAMMER2_MAXCLUSTER; ++i) {
+			hmp = pmp->pfs_hmps[i];
+			if (hmp == NULL || pmp == hmp->spmp)
+				continue;
+			for (j = 0; j < i; ++j)
+				if (pmp->pfs_hmps[j] == hmp)
+					break;
+			if (j != i)
+				continue;
+			hammer2_flush_volhdr(hmp);
+		}
 	}
 	debug_hprintf("FILESYSTEM SYNC STAGE 2 DONE\n");
 

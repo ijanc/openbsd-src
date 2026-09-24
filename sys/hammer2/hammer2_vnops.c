@@ -453,6 +453,9 @@ hammer2_setattr(void *v)
 		return (EINVAL);
 
 	hammer2_trans_init(ip->pmp, 0);
+	/* truncate_lock is acquired before ip->lock. */
+	if (vap->va_size != (u_quad_t)VNOVAL)
+		hammer2_mtx_ex(&ip->truncate_lock);
 	hammer2_inode_lock(ip, 0);
 
 	if (vap->va_flags != (u_long)VNOVAL) {
@@ -514,9 +517,7 @@ hammer2_setattr(void *v)
 			if (vap->va_size == ip->meta.size)
 				break;
 			if (vap->va_size < ip->meta.size) {
-				hammer2_mtx_ex(&ip->truncate_lock);
 				hammer2_truncate_file(ip, vap->va_size);
-				hammer2_mtx_unlock(&ip->truncate_lock);
 			} else {
 				hammer2_extend_file(ip, vap->va_size);
 			}
@@ -580,6 +581,8 @@ done:
 		hammer2_inode_chain_sync(ip);
 
 	hammer2_inode_unlock(ip);
+	if (vap->va_size != (u_quad_t)VNOVAL)
+		hammer2_mtx_unlock(&ip->truncate_lock);
 	hammer2_trans_done(ip->pmp, HAMMER2_TRANS_SIDEQ);
 
 	return (error);
@@ -754,8 +757,8 @@ hammer2_read_file(hammer2_inode_t *ip, struct uio *uio, int ioflag)
 	 * WARNING! Assumes that the kernel interlocks size changes at the
 	 *	    vnode level.
 	 */
-	hammer2_mtx_sh(&ip->lock);
 	hammer2_mtx_sh(&ip->truncate_lock);
+	hammer2_mtx_sh(&ip->lock);
 	isize = ip->meta.size;
 	hammer2_mtx_unlock(&ip->lock);
 
@@ -861,14 +864,14 @@ hammer2_write_file(hammer2_inode_t *ip, struct uio *uio, int ioflag,
 	 * WARNING! Assumes that the kernel interlocks size changes at the
 	 *	    vnode level.
 	 */
-	hammer2_mtx_ex(&ip->lock);
 	hammer2_mtx_sh(&ip->truncate_lock);
+	hammer2_mtx_ex(&ip->lock);
 	if (ioflag & IO_APPEND)
 		uio->uio_offset = ip->meta.size;
 	if ((ip->meta.uflags & APPEND) &&
 	    uio->uio_offset != (off_t)ip->meta.size) {
-		hammer2_mtx_unlock(&ip->truncate_lock);
 		hammer2_mtx_unlock(&ip->lock);
+		hammer2_mtx_unlock(&ip->truncate_lock);
 		return (EPERM);
 	}
 	old_eof = ip->meta.size;
@@ -990,8 +993,8 @@ hammer2_write_file(hammer2_inode_t *ip, struct uio *uio, int ioflag,
 	 */
 	if (error && new_eof != old_eof) {
 		hammer2_mtx_unlock(&ip->truncate_lock);
-		hammer2_mtx_ex(&ip->lock); /* note lock order */
 		hammer2_mtx_ex(&ip->truncate_lock); /* note lock order */
+		hammer2_mtx_ex(&ip->lock); /* note lock order */
 		hammer2_truncate_file(ip, old_eof);
 		if (ip->flags & HAMMER2_INODE_MODIFIED) {
 			/*

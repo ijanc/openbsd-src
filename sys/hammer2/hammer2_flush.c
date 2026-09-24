@@ -1096,12 +1096,7 @@ hammer2_xop_inode_flush(hammer2_xop_t *arg, void *scratch, int clindex)
 	hammer2_pfs_t *pmp;
 	hammer2_chain_t *chain;
 	hammer2_inode_t *ip;
-	hammer2_devvp_t *e;
-	struct vnode *devvp;
-	struct buf *bp;
-	int flush_error = 0, fsync_error = 0, total_error = 0, vol_error = 0;
-	int j, xflags, force, ispfsroot = 0;
-	daddr_t blkno;
+	int xflags;
 
 	xflags = HAMMER2_FLUSH_TOP;
 	if (xop->head.flags & HAMMER2_XOP_INODE_STOP)
@@ -1134,35 +1129,29 @@ hammer2_xop_inode_flush(hammer2_xop_t *arg, void *scratch, int clindex)
 				hammer2_spin_unex(&pmp->blockset_spin);
 			}
 		}
-		if (chain->flags & HAMMER2_CHAIN_PFSBOUNDARY)
-			ispfsroot = 1;
 		hammer2_chain_unlock(chain);
 		hammer2_chain_drop(chain);
-		chain = NULL;
-	} else {
-		hmp = NULL;
 	}
+	hammer2_xop_feed(&xop->head, NULL, clindex, 0);
+}
 
-	/*
-	 * Only flush the volume header if asked to, plus the inode must also
-	 * be the PFS root.
-	 */
-	if ((xop->head.flags & HAMMER2_XOP_VOLHDR) == 0)
-		goto skip;
-	if (ispfsroot == 0)
-		goto skip;
-
-	/*
-	 * Flush volume roots.  Avoid replication, we only want to
-	 * flush each hammer2_dev (hmp) once.
-	 */
-	for (j = clindex - 1; j >= 0; --j)
-		if ((chain = ip->cluster.array[j].chain) != NULL)
-			if (chain->hmp == hmp) {
-				chain = NULL; /* safety */
-				goto skip;
-			}
-	chain = NULL; /* safety */
+/*
+ * Flush the volume roots (super-root, freemap and topology) of the
+ * specified device and write out the volume header.  Must be called
+ * without any inode locks held since the device vnodes are locked and
+ * synced.  The PFS iroot should already have been flushed so that the
+ * topology leading to it is flagged.  Returns a HAMMER2 error code.
+ */
+int
+hammer2_flush_volhdr(hammer2_dev_t *hmp)
+{
+	hammer2_chain_t *chain;
+	hammer2_devvp_t *e;
+	struct vnode *devvp;
+	struct buf *bp;
+	int flush_error = 0, fsync_error = 0, total_error = 0, vol_error = 0;
+	int j, force;
+	daddr_t blkno;
 
 	/*
 	 * spmp transaction.  The super-root is never directly mounted so
@@ -1293,6 +1282,6 @@ hammer2_xop_inode_flush(hammer2_xop_t *arg, void *scratch, int clindex)
 
 	/* spmp trans */
 	hammer2_trans_done(hmp->spmp, HAMMER2_TRANS_ISFLUSH);
-skip:
-	hammer2_xop_feed(&xop->head, NULL, clindex, total_error);
+
+	return (total_error);
 }

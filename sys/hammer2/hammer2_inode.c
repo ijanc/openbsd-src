@@ -432,6 +432,8 @@ hammer2_inode_chain_and_parent(hammer2_inode_t *ip, int clindex,
 			hammer2_chain_lock(chain, how);
 		} else {
 			hammer2_spin_unsh(&ip->cluster_spin);
+			parent = NULL;
+			break;
 		}
 
 		/* Get parent, lock order must be (parent, chain). */
@@ -651,8 +653,13 @@ loop:
 	ip->vp = vp;
 	hammer2_inode_ref(ip); /* vp association */
 
-	/* vn_lock locks vp's ip->vnlock in OpenBSD. */
-	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
+	/*
+	 * vn_lock locks vp's ip->vnlock in OpenBSD.  The vnode is new and
+	 * reclaim runs with ip->vnlock unlocked, so this cannot fail.  Use
+	 * a try lock since ip->lock is held.
+	 */
+	error = vn_lock(vp, LK_EXCLUSIVE | LK_NOWAIT);
+	KASSERT(error == 0);
 
 	/* vref devvps which get vrele'd on reclaim. */
 	hmp = ip->pmp->pfs_hmps[0];

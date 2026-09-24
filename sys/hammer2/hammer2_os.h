@@ -154,11 +154,12 @@ hammer2_mtx_init(hammer2_mtx_t *p, const char *s)
 	rrw_init(&p->lock, s);
 }
 
+/* Multiple locks of the same class (e.g. parent and child) may be held. */
 static __inline void
 hammer2_mtx_init_recurse(hammer2_mtx_t *p, const char *s)
 {
 	bzero(p, sizeof(*p));
-	rrw_init(&p->lock, s);
+	rrw_init_flags(&p->lock, s, RWL_DUPOK);
 }
 
 static __inline void
@@ -261,9 +262,13 @@ hammer2_mtx_upgrade_try(hammer2_mtx_t *p)
 	if (hammer2_mtx_owned(p))
 		return (0);
 
-	hammer2_mtx_unlock(p); /* XXX */
+	/* rrwlock(9) has no upgrade; on failure keep the shared lock. */
+	hammer2_mtx_unlock(p);
+	if (hammer2_mtx_ex_try(p) == 0)
+		return (0);
+	hammer2_mtx_sh(p);
 
-	return (hammer2_mtx_ex_try(p));
+	return (1);
 }
 
 static __inline int
@@ -292,6 +297,13 @@ static __inline void
 hammer2_spin_init(hammer2_spin_t *p, const char *s)
 {
 	rw_init(p, s);
+}
+
+/* Multiple locks of the same class may be held. */
+static __inline void
+hammer2_spin_init_recurse(hammer2_spin_t *p, const char *s)
+{
+	rw_init_flags(p, s, RWL_DUPOK);
 }
 
 static __inline void

@@ -49,9 +49,10 @@
  * without causing deadlocks.
  */
 static hammer2_io_t *hammer2_io_hash_lookup(hammer2_dev_t *, hammer2_off_t,
-    uint64_t *);
+    uint32_t *);
 static hammer2_io_t *hammer2_io_hash_enter(hammer2_dev_t *, hammer2_io_t *,
-    uint64_t *);
+    uint32_t *);
+static void hammer2_io_putblk_flags(hammer2_io_t **, uint32_t);
 static void hammer2_io_hash_cleanup(hammer2_dev_t *, int);
 
 static __inline void
@@ -139,8 +140,7 @@ hammer2_io_alloc(hammer2_dev_t *hmp, hammer2_off_t data_off, uint8_t btype,
 			hammer2_mtx_unlock(&dio->lock);
 			hammer2_mtx_destroy(&dio->lock);
 			hfree(dio, M_HAMMER2, sizeof(*dio));
-			dio = xio;
-			hammer2_mtx_ex(&dio->lock);
+			dio = xio;	/* returned locked */
 		}
 	} else {
 		return (NULL);
@@ -187,8 +187,10 @@ hammer2_io_getblk(hammer2_dev_t *hmp, int btype, hammer2_off_t lbase, int lsize,
 	hammer2_mtx_ex(&hmp->iohash_lock);
 	if (op == HAMMER2_DOP_READQ) {
 		dio = hammer2_io_alloc(hmp, lbase, btype, 0);
-		if (dio == NULL)
+		if (dio == NULL) {
+			hammer2_mtx_unlock(&hmp->iohash_lock);
 			return (NULL);
+		}
 		op = HAMMER2_DOP_READ;
 	} else {
 		dio = hammer2_io_alloc(hmp, lbase, btype, 1);
@@ -268,16 +270,16 @@ hammer2_io_getblk(hammer2_dev_t *hmp, int btype, hammer2_off_t lbase, int lsize,
 }
 
 /*
- * Release our ref on *diop.
+ * Release our ref on *diop, setting flags under dio->lock first.
  * On the 1->0 transition we clear DIO_GOOD and dispose of dio->bp.
  */
-void
-hammer2_io_putblk(hammer2_io_t **diop)
+static void
+hammer2_io_putblk_flags(hammer2_io_t **diop, uint32_t flags)
 {
 	hammer2_dev_t *hmp;
 	hammer2_io_t *dio;
 	struct buf *bp;
-	uint64_t orefs;
+	uint32_t orefs;
 	int dio_limit;
 
 	dio = *diop;
@@ -289,6 +291,7 @@ hammer2_io_putblk(hammer2_io_t **diop)
 		return; /* lost race */
 	}
 	hammer2_assert_io_refs(dio);
+	dio->refs |= flags;
 
 	/*
 	 * Drop refs.
@@ -298,7 +301,8 @@ hammer2_io_putblk(hammer2_io_t **diop)
 	orefs = dio->refs;
 	if ((dio->refs & HAMMER2_DIO_MASK) == 1) {
 		dio->refs--;
-		dio->refs &= ~(HAMMER2_DIO_GOOD | HAMMER2_DIO_DIRTY);
+		dio->refs &= ~(HAMMER2_DIO_GOOD | HAMMER2_DIO_DIRTY |
+		    HAMMER2_DIO_FLUSH);
 	} else {
 		dio->refs--;
 		hammer2_mtx_unlock(&dio->lock);
@@ -330,7 +334,7 @@ hammer2_io_putblk(hammer2_io_t **diop)
 			 * case when writing to large files.
 			 */
 			/* No cluster_write() in OpenBSD. */
-			if (dio->refs & HAMMER2_DIO_FLUSH)
+			if (orefs & HAMMER2_DIO_FLUSH)
 				bawrite(bp);
 			else
 				bdwrite(bp);
@@ -364,6 +368,12 @@ hammer2_io_putblk(hammer2_io_t **diop)
 	if (hmp->iofree_count > dio_limit)
 		hammer2_io_hash_cleanup(hmp, dio_limit);
 	hammer2_mtx_unlock(&hmp->iohash_lock);
+}
+
+void
+hammer2_io_putblk(hammer2_io_t **diop)
+{
+	hammer2_io_putblk_flags(diop, 0);
 }
 
 char *
@@ -420,22 +430,19 @@ hammer2_io_getquick(hammer2_dev_t *hmp, off_t lbase, int lsize)
 void
 hammer2_io_bawrite(hammer2_io_t **diop)
 {
-	atomic_set_32(&(*diop)->refs, HAMMER2_DIO_DIRTY | HAMMER2_DIO_FLUSH);
-	hammer2_io_putblk(diop);
+	hammer2_io_putblk_flags(diop, HAMMER2_DIO_DIRTY | HAMMER2_DIO_FLUSH);
 }
 
 void
 hammer2_io_bdwrite(hammer2_io_t **diop)
 {
-	atomic_set_32(&(*diop)->refs, HAMMER2_DIO_DIRTY);
-	hammer2_io_putblk(diop);
+	hammer2_io_putblk_flags(diop, HAMMER2_DIO_DIRTY);
 }
 
 int
 hammer2_io_bwrite(hammer2_io_t **diop)
 {
-	atomic_set_32(&(*diop)->refs, HAMMER2_DIO_DIRTY | HAMMER2_DIO_FLUSH);
-	hammer2_io_putblk(diop);
+	hammer2_io_putblk_flags(diop, HAMMER2_DIO_DIRTY | HAMMER2_DIO_FLUSH);
 
 	return (0); /* XXX */
 }
@@ -443,7 +450,9 @@ hammer2_io_bwrite(hammer2_io_t **diop)
 void
 hammer2_io_setdirty(hammer2_io_t *dio)
 {
-	atomic_set_32(&dio->refs, HAMMER2_DIO_DIRTY);
+	hammer2_mtx_ex(&dio->lock);
+	dio->refs |= HAMMER2_DIO_DIRTY;
+	hammer2_mtx_unlock(&dio->lock);
 }
 
 void
@@ -468,14 +477,14 @@ hammer2_io_hashv(hammer2_dev_t *hmp, hammer2_off_t pbase)
 }
 
 /*
- * Lookup and reference the requested dio.
+ * Lookup and reference the requested dio.  The dio is returned locked.
  */
 static hammer2_io_t *
-hammer2_io_hash_lookup(hammer2_dev_t *hmp, hammer2_off_t pbase, uint64_t *refsp)
+hammer2_io_hash_lookup(hammer2_dev_t *hmp, hammer2_off_t pbase, uint32_t *refsp)
 {
 	hammer2_io_hash_t *hash;
 	hammer2_io_t *dio;
-	uint64_t refs;
+	uint32_t refs;
 
 	hammer2_mtx_assert_ex(&hmp->iohash_lock);
 
@@ -505,14 +514,14 @@ hammer2_io_hash_lookup(hammer2_dev_t *hmp, hammer2_off_t pbase, uint64_t *refsp)
 /*
  * Enter a dio into the hash.  If the pbase already exists in the hash,
  * the xio in the hash is referenced and returned.  If dio is sucessfully
- * entered into the hash, NULL is returned.
+ * entered into the hash, NULL is returned.  A returned xio is locked.
  */
 static hammer2_io_t *
-hammer2_io_hash_enter(hammer2_dev_t *hmp, hammer2_io_t *dio, uint64_t *refsp)
+hammer2_io_hash_enter(hammer2_dev_t *hmp, hammer2_io_t *dio, uint32_t *refsp)
 {
 	hammer2_io_hash_t *hash;
 	hammer2_io_t *xio, **xiop;
-	uint64_t refs;
+	uint32_t refs;
 
 	hammer2_mtx_assert_ex(&hmp->iohash_lock);
 	hammer2_assert_io_refs(dio);
@@ -524,6 +533,7 @@ hammer2_io_hash_enter(hammer2_dev_t *hmp, hammer2_io_t *dio, uint64_t *refsp)
 	//hammer2_spin_ex(&hash->spin);
 	for (xiop = &hash->base; (xio = *xiop) != NULL; xiop = &xio->next) {
 		if (xio->pbase == dio->pbase) {
+			hammer2_mtx_ex(&xio->lock);
 			refs = xio->refs++;
 			if ((refs & HAMMER2_DIO_MASK) == 0)
 				atomic_add_int(&xio->hmp->iofree_count, -1);
@@ -566,7 +576,13 @@ hammer2_io_hash_cleanup(hammer2_dev_t *hmp, int dio_limit)
 		//hammer2_spin_ex(&hash->spin);
 		diop = &hash->base;
 		while ((dio = *diop) != NULL) {
+			/* Skip busy dios rather than sleep on them. */
+			if (hammer2_mtx_ex_try(&dio->lock)) {
+				diop = &dio->next;
+				continue;
+			}
 			if ((dio->refs & HAMMER2_DIO_MASK) != 0) {
+				hammer2_mtx_unlock(&dio->lock);
 				diop = &dio->next;
 				continue;
 			}
@@ -575,12 +591,14 @@ hammer2_io_hash_cleanup(hammer2_dev_t *hmp, int dio_limit)
 				dio->act = (act < 0) ? 0 : act;
 			}
 			if (dio->act) {
+				hammer2_mtx_unlock(&dio->lock);
 				diop = &dio->next;
 				continue;
 			}
 			KKASSERT(dio->bp == NULL);
 			*diop = dio->next;
 			dio->next = NULL;
+			hammer2_mtx_unlock(&dio->lock);
 			*cleanapp = dio;
 			cleanapp = &dio->next;
 			--count;

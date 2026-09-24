@@ -897,7 +897,7 @@ h2_bulkfree_sync(hammer2_bulkfree_info_t *cbinfo)
 			if (error) {
 				hprintf("freemap lookup error near %016llx "
 				    "error %d\n",
-				    (long long)data_off, live_chain->error);
+				    (long long)data_off, error);
 				break;
 			}
 		}

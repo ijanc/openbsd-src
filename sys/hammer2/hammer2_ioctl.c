@@ -334,11 +334,13 @@ hammer2_ioctl_pfs_create(hammer2_inode_t *ip, void *data)
 		force_local = (hmp->hflags & HMNT2_LOCAL) ? hmp : NULL;
 
 		hammer2_chain_lock(nchain, HAMMER2_RESOLVE_ALWAYS);
+		hammer2_chain_ref_hold(nchain);
+		hammer2_chain_unlock(nchain);
 		nipdata = &nchain->data->ipdata;
 		debug_hprintf("ADD LOCAL PFS (IOCTL): %s\n", nipdata->filename);
 		hammer2_pfsalloc(nchain, nipdata, force_local);
 
-		hammer2_chain_unlock(nchain);
+		hammer2_chain_drop_unhold(nchain);
 		hammer2_chain_drop(nchain);
 	}
 	hammer2_trans_done(hmp->spmp,
@@ -553,25 +555,33 @@ hammer2_ioctl_pfs_snapshot(hammer2_inode_t *ip, void *data)
 		hammer2_inode_chain_sync(nip);
 		hammer2_inode_chain_flush(nip,
 		    HAMMER2_XOP_INODE_STOP | HAMMER2_XOP_FSSYNC);
-		    /* XXX | HAMMER2_XOP_VOLHDR */
 		hammer2_inode_drop(nip);
 		/* nip is dead */
+
+		/* hammer2_pfsalloc() locks inodes. */
+		hammer2_chain_unlock(chain);
+		hammer2_chain_drop(chain);
+		chain = NULL;
 
 		force_local = (hmp->hflags & HMNT2_LOCAL) ? hmp : NULL;
 
 		hammer2_chain_lock(nchain, HAMMER2_RESOLVE_ALWAYS);
+		hammer2_chain_ref_hold(nchain);
+		hammer2_chain_unlock(nchain);
 		wipdata = &nchain->data->ipdata;
 		debug_hprintf("SNAPSHOT LOCAL PFS (IOCTL): %s\n",
 		    wipdata->filename);
 		hammer2_pfsalloc(nchain, wipdata, force_local);
 		nchain->pmp->inode_tid = starting_inum;
 
-		hammer2_chain_unlock(nchain);
+		hammer2_chain_drop_unhold(nchain);
 		hammer2_chain_drop(nchain);
 	}
 
-	hammer2_chain_unlock(chain);
-	hammer2_chain_drop(chain);
+	if (chain) {
+		hammer2_chain_unlock(chain);
+		hammer2_chain_drop(chain);
+	}
 
 	hammer2_inode_unlock(ip);
 	if (pfs->pfs_flags & HAMMER2_PFSFLAGS_NOSYNC)

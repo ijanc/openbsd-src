@@ -145,8 +145,8 @@ typedef struct hammer2_inoq_head hammer2_inoq_head_t;
  * fixed-sized filesystem buffers frontend by variable-sized hammer2_chain
  * structures.
  *
- * Note that DragonFly uses atomic + interlock for refs, atomic for
- * dedup_xxx, whereas other BSD's protect them with dio lock.
+ * refs (count and GOOD/DIRTY/FLUSH flags) and dedup_xxx are protected
+ * by dio->lock.
  */
 struct hammer2_io {
 	struct hammer2_io	*next;
@@ -756,7 +756,6 @@ union hammer2_xop {
 #define HAMMER2_XOP_MODIFYING		0x00000001
 #define HAMMER2_XOP_STRATEGY		0x00000002
 #define HAMMER2_XOP_INODE_STOP		0x00000004
-#define HAMMER2_XOP_VOLHDR		0x00000008
 #define HAMMER2_XOP_FSSYNC		0x00000010
 
 /*
@@ -1036,6 +1035,7 @@ hammer2_tid_t hammer2_trans_newinum(hammer2_pfs_t *);
 void hammer2_trans_assert_strategy(hammer2_pfs_t *);
 int hammer2_flush(hammer2_chain_t *, int);
 void hammer2_xop_inode_flush(hammer2_xop_t *, void *, int);
+int hammer2_flush_volhdr(hammer2_dev_t *);
 
 /* hammer2_freemap.c */
 int hammer2_freemap_alloc(hammer2_chain_t *, size_t);
@@ -1262,8 +1262,11 @@ hammer2_xop_gdata(hammer2_xop_head_t *xop)
 
 	if (focus->dio) {
 		hammer2_mtx_sh(&focus->diolk);
-		if ((xop->focus_dio = focus->dio) != NULL)
-			atomic_add_32(&xop->focus_dio->refs, 1);
+		if ((xop->focus_dio = focus->dio) != NULL) {
+			hammer2_mtx_ex(&xop->focus_dio->lock);
+			xop->focus_dio->refs++;
+			hammer2_mtx_unlock(&xop->focus_dio->lock);
+		}
 		data = focus->data;
 		hammer2_mtx_unlock(&focus->diolk);
 	} else {
