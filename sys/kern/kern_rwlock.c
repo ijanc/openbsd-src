@@ -367,12 +367,22 @@ rw_do_enter_read(struct rwlock *rwl, int flags)
 			panic("%s rwlock %p: enter read deadlock",
 			    rwl->rwl_name, rwl);
 		}
-	} else if (atomic_load_int(&rwl->rwl_waiters) == 0) {
+	} else if (ISSET(flags, RW_READAGAIN) ||
+	    atomic_load_int(&rwl->rwl_waiters) == 0) {
+		/*
+		 * Readers queue behind waiting writers, unless the caller
+		 * already holds a read lock that keeps those writers out.
+		 */
 		if (rw_read_incr(rwl, owner)) {
 			/* nailed it */
 			TRACEINDEX(rwlock, rwl->rwl_traceidx, rwl, 1, 2);
 			goto locked;
 		}
+	}
+
+	if (__predict_false(ISSET(flags, RW_READAGAIN))) {
+		panic("%s rwlock %p: enter read again when not read locked",
+		    rwl->rwl_name, rwl);
 	}
 
 	if (ISSET(flags, RW_NOSLEEP)) {

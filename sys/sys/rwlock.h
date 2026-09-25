@@ -122,6 +122,7 @@ struct rwlock {
 #define RW_NOSLEEP		0x0040UL /* don't wait for the lock */
 #define RW_RECURSEFAIL		0x0080UL /* Fail on recursion for RRW locks. */
 #define RW_DUPOK		0x0100UL /* Permit duplicate lock */
+#define RW_READAGAIN		0x0200UL /* already read locked, don't wait */
 
 /*
  * for rw_status() and rrw_status() only: exclusive lock held by
