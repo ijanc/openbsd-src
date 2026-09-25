@@ -45,6 +45,7 @@
 #include <sys/unistd.h>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <sys/lockf.h>
 #include <sys/specdev.h>
 
 #include <miscfs/fifofs/fifo.h>
@@ -2681,6 +2682,22 @@ hammer2_pathconf(void *v)
 }
 
 static int
+hammer2_advlock(void *v)
+{
+	struct vop_advlock_args /* {
+		struct vnode *a_vp;
+		void *a_id;
+		int a_op;
+		struct flock *a_fl;
+		int a_flags;
+	} */ *ap = v;
+	hammer2_inode_t *ip = VTOI(ap->a_vp);
+
+	return (lf_advlock(&ip->lockf, ip->meta.size, ap->a_id, ap->a_op,
+	    ap->a_fl, ap->a_flags));
+}
+
+static int
 hammer2_lock(void *v)
 {
 	struct vop_lock_args /* {
@@ -2922,7 +2939,7 @@ const struct vops hammer2_vops = {
 	.vop_print	= hammer2_print,
 	.vop_islocked	= hammer2_islocked,
 	.vop_pathconf	= hammer2_pathconf,
-	.vop_advlock	= eopnotsupp,
+	.vop_advlock	= hammer2_advlock,
 	.vop_bwrite	= vop_generic_bwrite,
 };
 

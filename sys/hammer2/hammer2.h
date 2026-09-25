@@ -455,6 +455,7 @@ struct hammer2_inode {
 	hammer2_pfs_t		*pmp;		/* PFS mount */
 	hammer2_off_t		osize;
 	struct vnode		*vp;
+	struct lockf_state	*lockf;		/* advisory locks */
 	unsigned int		refs;		/* +vpref, +flushref */
 	unsigned int		flags;		/* for HAMMER2_INODE_xxx */
 	uint8_t			comp_heuristic;
