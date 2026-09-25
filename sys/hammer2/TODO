@@ -1,7 +1,3 @@
-- Shared recursion on rrwlock(9) sleeps if a writer is waiting:
-  RESOLVE_LOCKAGAIN|SHARED in hammer2_chain_lock() and recursive
-  shared hammer2_inode_lock() can self-deadlock.
-
 - bread()/getblk() in hammer2_io_getblk() may sleep for buffer
   space with h2io, chain and inode locks held while the buffer
   daemon writes hammer2 buffers through hammer2_strategy_write().
@@ -28,3 +24,13 @@
   hammer2_mntlist and has no vchain/fchain, iohash or locks set up
   (TAILQ_REMOVE on a list it is not on), and the opened devvpl is
   never closed nor freed since it was not moved to hmp->devvp_list.
+
+- hammer2_lookup() holds dip shared across hammer2_inode_get(), which
+  locks nip exclusive; a corrupted directory entry resolving to dip
+  itself (nip == dip) self-deadlocks.
+
+- Truncating a file with embedded data (<= 512 bytes) to 0 and
+  extending it returns the old contents instead of zeroes, also
+  across a sync: hammer2_truncbuf() drops the buffer but the inode's
+  embedded data is not cleared, and hammer2_strategy_read() copies
+  it back.

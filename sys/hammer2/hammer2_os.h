@@ -176,6 +176,14 @@ hammer2_mtx_sh(hammer2_mtx_t *p)
 	atomic_add_int(&p->refs, 1);
 }
 
+/* Caller already holds a shared lock; do not wait for pending writers. */
+static __inline void
+hammer2_mtx_sh_again(hammer2_mtx_t *p)
+{
+	rrw_enter(&p->lock, RW_READ|RW_READAGAIN);
+	atomic_add_int(&p->refs, 1);
+}
+
 static __inline void
 hammer2_mtx_unlock(hammer2_mtx_t *p)
 {

@@ -747,7 +747,7 @@ hammer2_chain_lock(hammer2_chain_t *chain, int how)
 			if (how & HAMMER2_RESOLVE_LOCKAGAIN) {
 				hammer2_mtx_assert_locked(&chain->lock);
 				hammer2_mtx_assert_sh(&chain->lock);
-				hammer2_mtx_sh(&chain->lock);
+				hammer2_mtx_sh_again(&chain->lock);
 				hammer2_mtx_assert_sh(&chain->lock);
 			} else {
 				if (hammer2_mtx_sh_try(&chain->lock) != 0) {
@@ -774,7 +774,7 @@ hammer2_chain_lock(hammer2_chain_t *chain, int how)
 			if (how & HAMMER2_RESOLVE_LOCKAGAIN) {
 				hammer2_mtx_assert_locked(&chain->lock);
 				hammer2_mtx_assert_sh(&chain->lock);
-				hammer2_mtx_sh(&chain->lock);
+				hammer2_mtx_sh_again(&chain->lock);
 				hammer2_mtx_assert_sh(&chain->lock);
 			} else {
 				hammer2_mtx_sh(&chain->lock);
