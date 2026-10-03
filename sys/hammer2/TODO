@@ -28,9 +28,3 @@
 - hammer2_lookup() holds dip shared across hammer2_inode_get(), which
   locks nip exclusive; a corrupted directory entry resolving to dip
   itself (nip == dip) self-deadlocks.
-
-- Truncating a file with embedded data (<= 512 bytes) to 0 and
-  extending it returns the old contents instead of zeroes, also
-  across a sync: hammer2_truncbuf() drops the buffer but the inode's
-  embedded data is not cleared, and hammer2_strategy_read() copies
-  it back.

@@ -1380,6 +1380,10 @@ hammer2_xop_inode_chain_sync(hammer2_xop_t *arg, void *scratch, int clindex)
 	/*
 	 * Sync the inode meta-data, potentially clear the blockset area
 	 * of direct data so it can be used for blockrefs.
+	 *
+	 * On a truncation of embedded data, zero the bytes beyond the
+	 * new EOF.  Nothing else does when the buffer containing them
+	 * was discarded, and a later extension would read them back.
 	 */
 	if (error == 0) {
 		error = hammer2_chain_modify(parent, xop->head.mtid, 0, 0);
@@ -1388,6 +1392,13 @@ hammer2_xop_inode_chain_sync(hammer2_xop_t *arg, void *scratch, int clindex)
 			if (xop->clear_directdata)
 				bzero(&parent->data->ipdata.u.blockset,
 				    sizeof(parent->data->ipdata.u.blockset));
+			else if ((xop->ipflags & HAMMER2_INODE_RESIZED) &&
+			    (xop->meta.op_flags & HAMMER2_OPFLAG_DIRECTDATA) &&
+			    xop->meta.size < xop->osize &&
+			    xop->meta.size < HAMMER2_EMBEDDED_BYTES)
+				bzero(parent->data->ipdata.u.data +
+				    xop->meta.size,
+				    HAMMER2_EMBEDDED_BYTES - xop->meta.size);
 		}
 	}
 done:
