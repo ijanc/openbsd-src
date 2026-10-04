@@ -483,6 +483,7 @@ ugen_do_read(struct ugen_softc *sc, int endpt, struct uio *uio, int flag)
 {
 	struct ugen_endpoint *sce = &sc->sc_endpoints[endpt][IN];
 	u_int32_t tn;
+	uint64_t nsecs;
 	size_t n;
 	char buf[UGEN_BBSIZE];
 	struct usbd_xfer *xfer;
@@ -510,6 +511,9 @@ ugen_do_read(struct ugen_softc *sc, int endpt, struct uio *uio, int flag)
 	}
 #endif
 
+	/* A zero timeout means no timeout. */
+	nsecs = sce->timeout ? MSEC_TO_NSEC(sce->timeout) : INFSLP;
+
 	switch (UE_GET_XFERTYPE(sce->edesc->bmAttributes)) {
 	case UE_INTERRUPT:
 		/* Block until activity occurred. */
@@ -522,7 +526,7 @@ ugen_do_read(struct ugen_softc *sc, int endpt, struct uio *uio, int flag)
 			sce->state |= UGEN_ASLP;
 			DPRINTFN(5, ("ugenread: sleep on %p\n", sce));
 			error = tsleep_nsec(sce, PZERO | PCATCH, "ugenrintr",
-			    MSEC_TO_NSEC(sce->timeout));
+			    nsecs);
 			sce->state &= ~UGEN_ASLP;
 			DPRINTFN(5, ("ugenread: woke, error=%d\n", error));
 			if (usbd_is_dying(sc->sc_udev))
@@ -594,7 +598,7 @@ ugen_do_read(struct ugen_softc *sc, int endpt, struct uio *uio, int flag)
 			sce->state |= UGEN_ASLP;
 			DPRINTFN(5, ("ugenread: sleep on %p\n", sce));
 			error = tsleep_nsec(sce, PZERO | PCATCH, "ugenriso",
-			    MSEC_TO_NSEC(sce->timeout));
+			    nsecs);
 			sce->state &= ~UGEN_ASLP;
 			DPRINTFN(5, ("ugenread: woke, error=%d\n", error));
 			if (usbd_is_dying(sc->sc_udev))
