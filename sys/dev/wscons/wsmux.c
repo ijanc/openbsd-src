@@ -291,8 +291,11 @@ wsmuxclose(dev_t dev, int flags, int mode, struct proc *p)
 	    (struct wsmux_softc *)wsmuxdevs[minor(dev)];
 	struct wseventvar *evar = sc->sc_base.me_evp;
 
-	if ((flags & (FREAD | FWRITE)) == FWRITE)
-		/* Not open for read */
+	/*
+	 * Only the last close gets here and its flags may be those of a
+	 * write-only opener; tear down if a reader set up our queue.
+	 */
+	if (sc->sc_base.me_evp != &sc->sc_base.me_evar)
 		return (0);
 
 	wsmux_do_close(sc);
